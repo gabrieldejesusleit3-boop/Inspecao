@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Inspeção de Quartos</title>
+<style>
+:root{--bg:#0f1524;--card:#1e2738;--campo:#2b3a58;--txt:#f1f5f9;--mut:#94a3b8;--azul:#3b82f6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,sans-serif}
+button{font:inherit;cursor:pointer}
+.topo{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;background:var(--card)}
+.topo b{font-size:18px}
+.wrap{max-width:900px;margin:0 auto;padding:16px}
+.btn{padding:12px 16px;border:0;border-radius:10px;background:var(--azul);color:#fff;font-weight:600}
+.btn.cinza{background:var(--campo)}
+.mut{color:var(--mut)}
+.legenda{display:flex;flex-wrap:wrap;gap:8px}
+.leg{padding:6px 10px;border-radius:999px;font-size:13px;font-weight:600}
+h2{margin:22px 0 10px;font-size:16px;color:var(--mut)}
+.grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
+.q{padding:16px 0;border:0;border-radius:10px;font-weight:700;font-size:16px;background:var(--campo);color:var(--mut)}
+.q:active{transform:scale(.95)}
+#modal{display:none;position:fixed;inset:0;background:#000b;align-items:center;justify-content:center;padding:16px;z-index:10}
+#modal.on{display:flex}
+.caixa{background:var(--card);border-radius:14px;padding:20px;width:100%;max-width:420px;max-height:90vh;overflow:auto}
+.caixa h3{margin:0 0 12px}
+.badge{display:inline-block;padding:6px 14px;border-radius:999px;font-weight:700}
+label{display:block;margin:12px 0 6px}
+input[type=email],input[type=password],textarea{width:100%;padding:12px;border:0;border-radius:10px;background:var(--campo);color:var(--txt);font:inherit}
+.opcoes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+.op{position:relative;margin:0}
+.op input{position:absolute;opacity:0}
+.op span{display:block;padding:12px;border-radius:10px;text-align:center;font-weight:700;opacity:.55}
+.op input:checked+span{opacity:1;outline:3px solid #fff}
+.msg{background:var(--campo);padding:10px;border-radius:10px;margin-bottom:8px}
+.linha{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-top:1px solid var(--campo);font-size:14px}
+</style>
+</head>
+<body>
+<div class="topo"><b>🏠 Inspeção de Quartos</b><button class="btn cinza" id="acao">Entrar (ADM)</button></div>
+<div class="wrap">
+  <div class="legenda" id="legenda"></div>
+  <div id="andares"></div>
+</div>
+<div id="modal"><div class="caixa" id="caixa"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+const SUPABASE_URL = "https://vqwbaflwchqqfivtatnw.supabase.co";
+const SUPABASE_KEY = "sb_publishable_Q4Xfq-bt8vlBuOs7virLLw_mhJUuso1";
+
+const NOTAS = ["Péssimo","Ruim","Regular","Bom","Ótimo","Excelente"];
+const CORES = {
+  "Péssimo":["#b91c1c","#fff"], "Ruim":["#ea580c","#fff"], "Regular":["#eab308","#000"],
+  "Bom":["#84cc16","#000"], "Ótimo":["#16a34a","#fff"], "Excelente":["#3b82f6","#fff"]
+};
+const ANDARES = [100,200,300];
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = d => new Date(d).toLocaleString("pt-BR",{dateStyle:"short",timeStyle:"short"});
+
+let ultimas = {}, admin = false;
+
+function abrir(html){ $("caixa").innerHTML = html; $("modal").classList.add("on"); }
+function fechar(){ $("modal").classList.remove("on"); }
+$("modal").onclick = e => { if (e.target.id === "modal") fechar(); };
+
+function desenhar(){
+  $("acao").textContent = admin ? "Sair" : "Entrar (ADM)";
+  const cont = {}; NOTAS.forEach(n => cont[n] = 0);
+  Object.values(ultimas).forEach(u => { if (u.nota in cont) cont[u.nota]++; });
+  $("legenda").innerHTML = NOTAS.map(n =>
+    `<span class="leg" style="background:${CORES[n][0]};color:${CORES[n][1]}">${n}: ${cont[n]}</span>`).join("");
+  $("andares").innerHTML = ANDARES.map(a => {
+    let t = "";
+    for (let i = a; i <= a + 20; i++) {
+      const q = String(i), u = ultimas[q];
+      const st = u ? `background:${CORES[u.nota][0]};color:${CORES[u.nota][1]}` : "";
+      t += `<button class="q" data-q="${q}" style="${st}">${q}</button>`;
+    }
+    return `<h2>${a/100}º andar</h2><div class="grade">${t}</div>`;
+  }).join("");
+}
+
+async function carregar(){
+  const { data, error } = await sb.from("ultimas_notas").select("*");
+  if (error) { $("andares").innerHTML = `<div class="msg">Erro ao carregar: ${esc(error.message)}</div>`; return; }
+  ultimas = {};
+  data.forEach(r => ultimas[r.quarto] = r);
+  desenhar();
+}
+
+$("andares").onclick = e => {
+  const b = e.target.closest(".q");
+  if (b) abrirQuarto(b.dataset.q);
+};
+
+async function abrirQuarto(q){
+  const u = ultimas[q];
+  let h = `<h3>Quarto ${esc(q)}</h3>`;
+  if (u) {
+    const c = CORES[u.nota];
+    h += `<span class="badge" style="background:${c[0]};color:${c[1]}">${esc(u.nota)}</span>
+          <div class="mut" style="margin:6px 0">${fmt(u.created_at)}</div>`;
+    if (u.obs) h += `<p>${esc(u.obs)}</p>`;
+  } else {
+    h += `<p class="mut">Ainda não inspecionado.</p>`;
+  }
+  if (admin) {
+    h += `<form id="form"><label class="mut">Nova nota</label>
+      <div class="opcoes">${NOTAS.map(n =>
+        `<label class="op"><input type="radio" name="nota" value="${n}" required>
+         <span style="background:${CORES[n][0]};color:${CORES[n][1]}">${n}</span></label>`).join("")}</div>
+      <label class="mut">Observação (opcional)</label>
+      <textarea id="obs" rows="3" maxlength="500"></textarea>
+      <button class="btn" id="salvar" style="width:100%;margin-top:12px">Salvar</button></form>`;
+  }
+  h += `<div id="hist"></div>
+        <button class="btn cinza" id="fechar" style="width:100%;margin-top:12px">Fechar</button>`;
+  abrir(h);
+  $("fechar").onclick = fechar;
+
+  if (admin) {
+    $("form").onsubmit = async e => {
+      e.preventDefault();
+      const nota = new FormData(e.target).get("nota");
+      const obs = $("obs").value.trim() || null;
+      $("salvar").disabled = true;
+      const { error } = await sb.from("inspecoes").insert({ quarto: q, nota, obs });
+      if (error) { alert("Erro ao salvar: " + error.message); $("salvar").disabled = false; return; }
+      fechar();
+      carregar();
+    };
+  }
+
+  const { data } = await sb.from("inspecoes").select("nota,obs,created_at")
+    .eq("quarto", q).order("id", { ascending: false }).limit(10);
+  if (data && data.length > 1 && $("hist")) {
+    $("hist").innerHTML = `<h2>Histórico</h2>` + data.slice(1).map(r =>
+      `<div class="linha"><span>${esc(r.nota)}${r.obs ? " · " + esc(r.obs) : ""}</span>
+       <span class="mut">${fmt(r.created_at)}</span></div>`).join("");
+  }
+}
+
+function abrirLogin(msg = ""){
+  abrir(`<h3>Entrar (ADM)</h3>${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
+    <form id="login">
+      <label class="mut">E-mail</label><input type="email" id="email" required autocomplete="username">
+      <label class="mut">Senha</label><input type="password" id="senha" required autocomplete="current-password">
+      <button class="btn" style="width:100%;margin-top:12px">Entrar</button>
+    </form>`);
+  $("login").onsubmit = async e => {
+    e.preventDefault();
+    const { error } = await sb.auth.signInWithPassword({
+      email: $("email").value.trim(), password: $("senha").value
+    });
+    if (error) return abrirLogin("E-mail ou senha incorretos.");
+    admin = true; fechar(); desenhar();
+  };
+}
+
+$("acao").onclick = async () => {
+  if (admin) { await sb.auth.signOut(); admin = false; desenhar(); }
+  else abrirLogin();
+};
+
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  admin = !!session;
+  await carregar();
+})();
+</script>
+</body>
+</html>
